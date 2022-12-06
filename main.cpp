@@ -9,16 +9,19 @@
 #define RAND_F (float(std::rand()) / float(RAND_MAX))
 #define SCR_WIDTH  800
 #define SCR_HEIGHT 800
+#define N_VO 3
 
 GLFWwindow* window;
-GLuint VAO, VBO, QuadVAO, QuadVBO, FBO;
+GLuint VAO[N_VO], VBO[N_VO], FBO;
 GLuint positions[2], velocities[2];
 Shader drawShader = Shader();
 Shader updateShader = Shader();
+Shader passthroughShader = Shader();
 
 bool paused = false;
 unsigned int N = 5000;
-float particleSize = 0.002;
+float particleSize = 0.003;
+float gapSize = 0.05;
 
 void processInput(GLFWwindow* window) {
     glfwPollEvents();
@@ -68,6 +71,7 @@ void init() {
     // Setup shader programs
     drawShader = Shader("shaders/draw.vs", "shaders/draw.fs");
     updateShader = Shader("shaders/update.vs", "shaders/update.fs");
+    passthroughShader = Shader("shaders/passthrough.vs", "shaders/passthrough.fs");
 
     // Particle point size
     glPointSize(SCR_HEIGHT * particleSize);
@@ -78,41 +82,45 @@ void setup() {
     float initPositions[4*N], initVelocities[4*N];
     int indices[N];
     for (unsigned int i = 0; i < N; i++) {
-        initPositions[4*i] = 2*RAND_F-1;
+        initPositions[4*i]   = -RAND_F;
         initPositions[4*i+1] = 2*RAND_F-1;
         initPositions[4*i+2] = 0;
         initPositions[4*i+3] = 1;
-        initVelocities[4*i] = RAND_F+1;
-        initVelocities[4*i+1] = RAND_F+1;
+        initVelocities[4*i]   = 10*(2*RAND_F-1);
+        initVelocities[4*i+1] = 10*(2*RAND_F-1);
         initVelocities[4*i+2] = 0;
         initVelocities[4*i+3] = 1;
         indices[i] = i;
     }
 
-    // Indices VAO
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
+    glGenVertexArrays(N_VO, VAO);
+    glGenBuffers(N_VO, VBO);
 
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    // Indices VAO
+    glBindVertexArray(VAO[0]);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
     glEnableVertexAttribArray(0);
     glVertexAttribIPointer(0, 1, GL_INT, 0, (void*)0);
-    glBindVertexArray(0);
 
     // Quad VAO
-    const GLfloat vertices[] = { -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f, -1.0f };
-    glGenVertexArrays(1, &QuadVAO);
-    glGenBuffers(1, &QuadVBO);
-
-    glBindVertexArray(QuadVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, QuadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    const GLfloat quadVertices[] = { -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f, -1.0f };
+    glBindVertexArray(VAO[1]);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
 
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-    glBindVertexArray(0);
+
+    // Barrier VAO
+    const GLfloat barrierVertices[] = { 0.0f, 1.0f, 0.0f, gapSize, 0.0f, -gapSize, 0.0f, -1.0f };
+    glBindVertexArray(VAO[2]);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO[2]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(barrierVertices), barrierVertices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     // Textures
     glGenTextures(2, positions);
@@ -154,6 +162,7 @@ void setup() {
     updateShader.use();
     updateShader.setInt("N", N);
     updateShader.setFloat("size", particleSize);
+    updateShader.setFloat("gapSize", gapSize);
     updateShader.setInt("positions", 0);
     updateShader.setInt("velocities", 1);
 }
@@ -180,12 +189,12 @@ void render(float dt, int k) {
     glBindTexture(GL_TEXTURE_2D, velocities[k]);
 
     glViewport(0, 0, N, 1);
-    glBindVertexArray(QuadVAO);
+    glBindVertexArray(VAO[1]);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
 
-    // Draw
+    // Draw particles
     glClear(GL_COLOR_BUFFER_BIT);
     drawShader.use();
 
@@ -194,9 +203,13 @@ void render(float dt, int k) {
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, velocities[k]);
 
-    glBindVertexArray(VAO);
+    glBindVertexArray(VAO[0]);
     glDrawArrays(GL_POINTS, 0, N);
-    glBindVertexArray(0);
+
+    // Draw barrier
+    passthroughShader.use();
+    glBindVertexArray(VAO[2]);
+    glDrawArrays(GL_LINES, 0, 4);
 
     glfwSwapBuffers(window);
 }
@@ -217,7 +230,7 @@ void run() {
         k = (k + 1) % 2;
 
         if (time - frameTime > 0.3) {
-            std::cout << "N: " << N << "\t   " << "FPS: " << std::round(frameCount/(time - frameTime)) << std::endl;
+            std::cout << "FPS: " << std::round(frameCount/(time - frameTime)) << std::endl;
             frameCount = 0;
             frameTime = time;
         }
@@ -230,10 +243,8 @@ int main() {
     setup();
     run();
 
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteVertexArrays(1, &QuadVAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &QuadVBO);
+    glDeleteVertexArrays(N_VO, VAO);
+    glDeleteBuffers(N_VO, VBO);
     glDeleteFramebuffers(1, &FBO);
 
     glfwTerminate();
