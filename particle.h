@@ -4,6 +4,8 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 
+#include "barrier.h"
+
 #include <iostream>
 #include <vector>
 
@@ -15,25 +17,17 @@ public:
     float size;
     Particle(glm::vec2 pos, glm::vec2 vel, float size);
     Particle(glm::vec2 pos, glm::vec2 vel) : Particle(pos, vel, 0.005f) {}
-    Particle(glm::vec2 pos) : Particle(pos, glm::vec2(2*RAND_F, 2*RAND_F)) {}
-    Particle() : Particle(glm::vec2(0.0f)) {}
+    Particle(glm::vec2 pos) : Particle(pos, glm::vec2(RAND_F+1, RAND_F+1)) {}
+    Particle() : Particle(glm::vec2(-1.0f)) {}
     ~Particle();
     void draw();
+    void updateVBO();
     void move(float dt);
+    void resolveBarrierCollision(Barrier *barrier);
 private:
     GLuint VAO, VBO;
-    void updateVBO() {
-        float vertices[] = {
-            pos.x - size, pos.y - size,
-            pos.x - size, pos.y + size,
-            pos.x + size, pos.y - size,
-            pos.x + size, pos.y + size,
-        };
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
-    }
 };
 
-void resolveCollision(Particle *p1, Particle *p2);
+void resolveParticleCollision(Particle *p1, Particle *p2);
 
 #endif

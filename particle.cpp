@@ -22,29 +22,65 @@ void Particle::draw() {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+void Particle::updateVBO() {
+    float vertices[] = {
+        pos.x - size, pos.y - size,
+        pos.x - size, pos.y + size,
+        pos.x + size, pos.y - size,
+        pos.x + size, pos.y + size,
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
+}
+
 void Particle::move(float dt) {
     pos += vel * dt;
 
-    if (pos.x - size <= -1) {
+    if (pos.x - size < -1) {
         pos.x = -1 + size;
-        vel.x *= -1;
-    } else if (pos.x + size >= 1) {
+        vel.x = -vel.x;
+    } else if (pos.x + size > 1) {
         pos.x = 1 - size;
-        vel.x *= -1;
+        vel.x = -vel.x;
     }
 
-    if (pos.y - size <= -1) {
+    if (pos.y - size < -1) {
         pos.y = -1 + size;
-        vel.y *= -1;
-    } else if (pos.y + size >= 1) {
+        vel.y = -vel.y;
+    } else if (pos.y + size > 1) {
         pos.y = 1 - size;
-        vel.y *= -1;
+        vel.y = -vel.y;
     }
-
-    updateVBO();
 }
 
-void resolveCollision(Particle *o1, Particle *o2) {
+void Particle::resolveBarrierCollision(Barrier *barrier) {
+    // Detect collision
+    glm::vec2 dist = glm::abs(pos - barrier->pos);
+    glm::vec2 extent = glm::vec2(size) + barrier->size;
+    bool collision = (dist.x < extent.x) && (dist.y < extent.y);
+    if (!collision)
+        return;
+
+    // Separate particle from barrier
+    glm::vec2 sep = extent - dist;
+    if (sep.x < sep.y && sep.x > 0)
+        sep.y = 0;
+    else if (sep.y > 0)
+        sep.x = 0;
+    if (pos.x - barrier->pos.x < 0)
+        sep.x = -sep.x;
+    if (pos.y - barrier->pos.y < 0)
+        sep.y = -sep.y;
+    pos += sep;
+
+    // Bounce
+    if (sep.x != 0)
+        vel.x = -vel.x;
+    if (sep.y != 0)
+        vel.y = -vel.y;
+}
+
+void resolveParticleCollision(Particle *o1, Particle *o2) {
     glm::vec2 p1 = o1->pos; glm::vec2 v1 = o1->vel;
     glm::vec2 p2 = o2->pos; glm::vec2 v2 = o2->vel;
 

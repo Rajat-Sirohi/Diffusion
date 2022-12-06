@@ -3,22 +3,24 @@
 
 #include "shader.h"
 #include "particle.h"
+#include "barrier.h"
 
 #include <iostream>
 #include <vector>
 
 #define SCR_WIDTH  800
 #define SCR_HEIGHT 800
-#define N_VO 0
 
 GLFWwindow* window;
 glm::vec2 mouse_pos(0.0f);
-GLuint VAO[N_VO], VBO[N_VO];
 Shader passthroughShader = Shader();
+bool paused = false;
 
 std::vector<Particle*> particles;
+std::vector<Barrier*> barriers;
 
 void processInput(GLFWwindow* window) {
+    glfwPollEvents();
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
         particles.push_back(new Particle());
     }
@@ -32,6 +34,8 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         if (action == GLFW_PRESS) {
             if (key == GLFW_KEY_R) {
                 particles.push_back(new Particle());
+            } else if (key == GLFW_KEY_TAB) {
+                paused = !paused;
             }
         }
     }
@@ -74,55 +78,65 @@ void init() {
     // Setup shader programs
     passthroughShader = Shader("shaders/passthrough.vs", "shaders/passthrough.fs");
 
-    for (int i = 0; i < 500; i++) {
-        particles.push_back(new Particle());
-    }
+    // Setup barriers
+    float gapSize = 0.05f;
+    barriers.push_back(new Barrier(glm::vec2(-0.7f,  (1+gapSize)/2), glm::vec2(0.0f, 0.0f), 0.01f, 1-gapSize));
+    barriers.push_back(new Barrier(glm::vec2(-0.7f, -(1+gapSize)/2), glm::vec2(0.0f, 0.0f), 0.01f, 1-gapSize));
 }
 
 void update(float dt) {
-    for (Particle *particle : particles)
-        particle->move(dt);
+    if (particles.size() < 500)
+        particles.push_back(new Particle());
 
     for (unsigned long i = 0; i < particles.size(); i++) {
         for (unsigned long j = i+1; j < particles.size(); j++) {
-            resolveCollision(particles[i], particles[j]);
+            resolveParticleCollision(particles[i], particles[j]);
         }
+    }
+
+    for (Particle *particle : particles) {
+        particle->move(dt);
+        for (Barrier *barrier : barriers)
+            particle->resolveBarrierCollision(barrier);
+        particle->updateVBO();
+    }
+
+    for (Barrier *barrier : barriers) {
+        barrier->move(dt);
+        barrier->updateVBO();
     }
 }
 
 void render() {
     glClear(GL_COLOR_BUFFER_BIT);
     passthroughShader.use();
-    glm::vec3 colors[] = {
-        glm::vec3(1.0f, 0.0f, 1.0f),
-        // glm::vec3(1.0f, 0.0f, 0.0f),
-        // glm::vec3(0.0f, 1.0f, 0.0f),
-        // glm::vec3(0.0f, 0.0f, 1.0f),
-        // glm::vec3(1.0f, 1.0f, 0.0f),
-        // glm::vec3(0.0f, 1.0f, 1.0f),
-        // glm::vec3(1.0f, 1.0f, 1.0f),
-    };
-    int numColors = sizeof(colors) / sizeof(glm::vec3);
-    for (unsigned long i = 0; i < particles.size(); i++) {
-        passthroughShader.setVec3("color", colors[i % numColors]);
-        particles[i]->draw();
-    }
+
+    // Particles
+    passthroughShader.setVec3("color", glm::vec3(1.0f, 0.0f, 1.0f));
+    for (Particle *particle : particles)
+        particle->draw();
+
+    // Barriers
+    passthroughShader.setVec3("color", glm::vec3(1.0f, 1.0f, 1.0f));
+    for (Barrier *barrier : barriers)
+        barrier->draw();
+
+    glfwSwapBuffers(window);
 }
 
 void run() {
     unsigned int frameCount = 0;
-    float dt = 0, prevTime = 0, frameTime = 0;
+    float prevTime = 0, frameTime = 0;
     while (!glfwWindowShouldClose(window)) {
         float time = glfwGetTime();
-        dt = time - prevTime;
+        float dt = time - prevTime;
         prevTime = time;
 
         processInput(window);
+        if (paused)
+            continue;
         update(dt);
         render();
-
-        glfwSwapBuffers(window);
-        glfwPollEvents();
 
         if (time - frameTime > 0.3) {
             std::cout << "N: " << particles.size() << "\t   " << "FPS: " << std::round(frameCount/(time - frameTime)) << std::endl;
@@ -136,9 +150,6 @@ void run() {
 int main() {
     init();
     run();
-
-    glDeleteVertexArrays(N_VO, VAO);
-    glDeleteBuffers(N_VO, VBO);
 
     glfwTerminate();
     return 0;
